@@ -40,9 +40,7 @@ class WeatherPreprocessing(private val rawWeatherData: DataFrame, private val ti
       .withColumn("DryBulbCelsius", col("DryBulbCelsius").cast("double"))
       .withColumn("SkyCondition", when(col("SkyCondition") === "M", "").otherwise(extractSkyConditionUDF(col("SkyCondition"))))
       .withColumn("Visibility", col("Visibility").cast("double"))
-      .withColumn("WindDirection", col("WindDirection").cast("int")).na.fill(0, Array("WindDirection"))
       .withColumn("WindSpeed", when(col("WindSpeed") === "VR", -1).otherwise(col("WindSpeed")).cast("int"))
-      .withColumn("StationPressure", col("StationPressure").cast("double"))
       .withColumn("WeatherType", when(col("WeatherType") === "M", "").otherwise(col("WeatherType")))
       .dropDuplicates("AIRPORT_ID", "Date", "Time_hh", "Time_mm")
 

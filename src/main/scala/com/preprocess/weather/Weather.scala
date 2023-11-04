@@ -5,10 +5,8 @@ case class Weather
   AIRPORT_ID: Int,
   Weather_TIMESTAMP: java.sql.Timestamp,
   DryBulbCelsius: Double,
-  SkyCondition: String,
+  SkyCOndition: String,
   Visibility: Double,
-  WindDirection: Int,
   WindSpeed: Double,
-  WeatherType: String,
-  StationPressure: Double
+  WeatherType: String
 )

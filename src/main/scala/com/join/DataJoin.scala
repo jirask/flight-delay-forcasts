@@ -8,69 +8,22 @@ import org.apache.spark.sql.functions._
 import java.sql.Date
 import java.sql.Timestamp
 import java.time.temporal.ChronoUnit
-import scala.collection.mutable.ArrayBuffer
 import java.nio.file.Paths
 import scala.io.StdIn
 import org.apache.spark.sql.{DataFrame, Dataset, Encoder, Row, SparkSession, functions}
 
-object DataJoin {
+class DataJoin(joinedTablePath: String,
+               NumberOfPartitions: Int,
+               weather_df: DataFrame,
+               flight_df: DataFrame) {
   private val spark: SparkSession = SparkSessionWrapper.spark
 
   import spark.implicits._
 
-  private var flights: DataFrame = _
-  private var airportList: DataFrame = _
-  private var weather: DataFrame = _
-
-  def main(args: Array[String]): Unit = {
-
-    val currentPath = Paths.get("").toAbsolutePath
-    println(s"Current directory is: $currentPath")
-
-    println("Enter root path:")
-    val hdfsPath = StdIn.readLine()
-    println(s"Path is: $hdfsPath")
-    val basePaths = Map(
-      "flight" -> "FlightsLight",
-      "weather" -> "WeatherLight",
-      "table_finale" -> "TableML"
-    )
-
-    val dbfsDirs = basePaths.map { case (key, value) => key -> s"$hdfsPath$value" }
-
-    dbfsDirs.foreach { case (key, path) => println(s"Relative path for $key: $path") }
-
-    val rawFlightsData = spark.read.format("csv")
-      .option("header", "true")
-      .option("inferSchema", "true")
-      .load(dbfsDirs("flight"))
-
-    val rawWeatherData = spark.read.format("csv")
-      .option("header", "true")
-      .option("inferSchema", "true")
-      .load(dbfsDirs("weather"))
-
-
-    val timezoneData = spark.read.format("csv")
-      .option("header", "true")
-      .option("inferSchema", "true")
-      .load(hdfsPath)
-
-    println("Enter number of partitions for join:")
-    val partitionsForJoin = StdIn.readInt()
-
-    val flightsPreprocessing = new FlightPreprocessing(rawFlightsData, timezoneData)
-    val flights = flightsPreprocessing.buildFlightTable()
-    val airports = flightsPreprocessing.getAirportList
-    val weatherPreprocessing = new WeatherPreprocessing(rawWeatherData, timezoneData, airports)
-  }
-
-  def createDataSet(table: DataFrame, dataType: Encoder[_]): Dataset[_] = table.as(dataType)
-
   def getCurrentTime: Long = System.currentTimeMillis() / 1000
 
-  def createFTOrigin(table_flight_DS: Dataset[Flight]): DataFrame = {
-    table_flight_DS
+  def createFlightsOriginDataset(flight_ds: Dataset[Flight]): DataFrame = {
+    flight_ds
       .orderBy($"ORIGIN_AIRPORT_ID", to_date($"CRS_DEP_TIMESTAMP"))
       .flatMap { flight =>
         val dateCRSOrigin = new Date(flight.CRS_DEP_TIMESTAMP.getTime)
@@ -89,8 +42,8 @@ object DataJoin {
       .withColumnRenamed("_2", "Flights_List")
   }
 
-  def createOT(table_weather_DS: Dataset[Weather]): DataFrame = {
-    table_weather_DS
+  def createWeatherOriginDataset(weather_ds: Dataset[Weather]): DataFrame = {
+    weather_ds
       .orderBy($"AIRPORT_ID", $"Weather_TIMESTAMP".desc)
       .flatMap { weather =>
         val dateWeather = new Date(weather.Weather_TIMESTAMP.getTime)
@@ -100,12 +53,10 @@ object DataJoin {
           weather.AIRPORT_ID,
           weather.Weather_TIMESTAMP,
           weather.DryBulbCelsius,
-          weather.SkyCondition,
+          weather.SkyCOndition,
           weather.Visibility,
-          weather.WindDirection,
           weather.WindSpeed,
-          weather.WeatherType,
-          weather.StationPressure
+          weather.WeatherType
         )
 
         val localDateTime = weather.Weather_TIMESTAMP.toLocalDateTime
@@ -140,17 +91,15 @@ object DataJoin {
 
   }
 
-  def rowToWeather(row: Row): Weather = {
+  private def rowToWeather(row: Row): Weather = {
     Weather(
       AIRPORT_ID = row.getInt(0),
       Weather_TIMESTAMP = row.getTimestamp(1),
       DryBulbCelsius = row.getDouble(2),
-      SkyCondition = row.getString(3),
+      SkyCOndition = row.getString(3),
       Visibility = row.getDouble(4),
-      WindDirection = row.getInt(5),
-      WindSpeed = row.getDouble(6),
-      WeatherType = row.getString(7),
-      StationPressure = row.getDouble(8)
+      WindSpeed = row.getDouble(5),
+      WeatherType = row.getString(6),
     )
   }
 
@@ -204,34 +153,124 @@ object DataJoin {
       .withColumnRenamed("_3", "Weather_List_Origin")
   }
 
-}
+  def FinalFOT(FOT_joined_Origin: DataFrame): DataFrame = {
+    FOT_joined_Origin
+      .map { row =>
+        val weatherList = row.getAs[Seq[Row]](1)
+        val flightInfo = Flight(
+          ORIGIN_AIRPORT_ID = row.getStruct(3).getInt(0),
+          DEST_AIRPORT_ID = row.getStruct(3).getInt(1),
+          CRS_DEP_TIMESTAMP = row.getStruct(3).getTimestamp(2),
+          SCHEDULED_ARRIVAL_TIMESTAMP = row.getStruct(3).getTimestamp(3),
+          ARR_DELAY_NEW = row.getStruct(3).getDouble(4)
+        )
 
-object MainApp {
-  private val spark: SparkSession = SparkSessionWrapper.spark
 
-  import spark.implicits._
+        // etape 1: convertir le java.sql.timestamp en java.time.LocalDateTime
+        val timestamp_CRS_Departure = flightInfo.CRS_DEP_TIMESTAMP.toLocalDateTime
+        //Etapes 2 & 3 : retirer 12h et convertir le résultat de java.time.LocalDateTime en java.sql.Timestamp
+        val twelveHoursBeforeCRSDeparture = Timestamp.valueOf(flightInfo.CRS_DEP_TIMESTAMP.toLocalDateTime.minus(12, ChronoUnit.HOURS))
 
-  def main(args: Array[String]): Unit = {
-
-
-
-    //    data_join.loadData(hdfsPath)
-//
-//
-//
-//    val table_flight_DS = DataProcessing.createDataSet(Table_flights, Encoders.bean(classOf[Flights]))
-//    val table_weather_DS = DataProcessing.createDataSet(table_weather, Encoders.bean(classOf[Weather]))
-//
-//    println(DataProcessing.getCurrentTime)
-//
-//    val FT_Origin = DataProcessing.createFTOrigin(table_flight_DS)
-//    val OT = DataProcessing.createOT(table_weather_DS)
-//
-//    val (OT_partition, FT_Origin_partition) = DataProcessing.repartitionDataFrames(OT, FT_Origin, param1Value)
-//
-//    val FOT_joined_Origin = DataProcessing.joinOTAndFT(OT_partition, FT_Origin_partition)
-//    val FOT_Etape_2 = DataProcessing.aggregateFOT(FOT_joined_Origin)
-//    val FT_Destination = DataProcessing.createFTDestination(FOT_Etape_2)
-
+        val sortedWeatherList = weatherList.sortWith { (row1, row2) => row1.getAs[java.sql.Timestamp]("_2").before(row2.getAs[java.sql.Timestamp]("_2"))
+        }.map(rowToWeather)
+        val relevantWeatherData = sortedWeatherList.collect {
+          case weather if twelveHoursBeforeCRSDeparture.before(weather.Weather_TIMESTAMP) &&
+            (weather.Weather_TIMESTAMP.before(flightInfo.CRS_DEP_TIMESTAMP) ||
+              weather.Weather_TIMESTAMP.equals(flightInfo.CRS_DEP_TIMESTAMP)) => weather
+        }
+        (flightInfo, relevantWeatherData)
+      }
+      .withColumnRenamed("_1", "FT")
+      .withColumnRenamed("_2", "WO_List")
   }
+
+  def createFinalTable(df: DataFrame): DataFrame = {
+    df
+      .withColumn("WO_11H", $"WO_List".getItem(0))
+      .withColumn("WO_10H", $"WO_List".getItem(1))
+      .withColumn("WO_09H", $"WO_List".getItem(2))
+      .withColumn("WO_08H", $"WO_List".getItem(3))
+      .withColumn("WO_07H", $"WO_List".getItem(4))
+      .withColumn("WO_06H", $"WO_List".getItem(5))
+      .withColumn("WO_05H", $"WO_List".getItem(6))
+      .withColumn("WO_04H", $"WO_List".getItem(7))
+      .withColumn("WO_03H", $"WO_List".getItem(8))
+      .withColumn("WO_02H", $"WO_List".getItem(9))
+      .withColumn("WO_01H", $"WO_List".getItem(10))
+      .withColumn("WO_00H", $"WO_List".getItem(11))
+      .withColumn("ORIGIN_AIRPORT_ID", $"FT".getItem("ORIGIN_AIRPORT_ID"))
+      .withColumn("DEST_AIRPORT_ID", $"FT".getItem("DEST_AIRPORT_ID"))
+      .withColumn("CRS_DEP_TIMESTAMP", $"FT".getItem("CRS_DEP_TIMESTAMP"))
+      .withColumn("SCHEDULED_ARRIVAL_TIMESTAMP", $"FT".getItem("SCHEDULED_ARRIVAL_TIMESTAMP"))
+      .withColumn("WD_11H", $"WD_List".getItem(0))
+      .withColumn("WD_10H", $"WD_List".getItem(1))
+      .withColumn("WD_09H", $"WD_List".getItem(2))
+      .withColumn("WD_08H", $"WD_List".getItem(3))
+      .withColumn("WD_07H", $"WD_List".getItem(4))
+      .withColumn("WD_06H", $"WD_List".getItem(5))
+      .withColumn("WD_05H", $"WD_List".getItem(6))
+      .withColumn("WD_04H", $"WD_List".getItem(7))
+      .withColumn("WD_03H", $"WD_List".getItem(8))
+      .withColumn("WD_02H", $"WD_List".getItem(9))
+      .withColumn("WD_01H", $"WD_List".getItem(10))
+      .withColumn("WD_00H", $"WD_List".getItem(11))
+      .withColumn("Class", $"FT".getItem("ARR_DELAY_NEW"))
+      .drop("FT", "WO_List", "WD_List")
+  }
+
+
+  /**
+   * Method for splitting the data into chunks and saving it as Parquet
+   * @param df
+   */
+  def splitAndSaveData(df: DataFrame): Unit = {
+    val fractions = Array(0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05)
+    val splits = df.randomSplit(fractions)
+    splits.zipWithIndex.foreach { case (split, index) =>
+      split.write.format("parquet")
+        .option("header", "true")
+        .mode("overwrite")
+        .save(s"$joinedTablePath/chunk_$index.parquet")
+    }
+  }
+
+  /**
+   *  Main method to execute the pipeline
+   */
+  def executePipeline(): Unit = {
+    //create datasets
+    val weather_ds: Dataset[Weather] = flight_df.as[Weather]
+    val flight_ds: Dataset[Flight] = flight_df.as[Flight]
+
+    val start: Long = System.currentTimeMillis() / 1000
+
+    val FT = createFlightsOriginDataset(flight_ds)
+    val OT = createWeatherOriginDataset(weather_ds)
+
+    val (repartitionedOT, repartitionedFTOrigin) = repartitionDataFrames(OT,FT,NumberOfPartitions)
+
+    println("Partitioning OK")
+
+//    val joinedFOT_origin = joinOTAndFT(repartitionedOT, repartitionedFTOrigin)
+//    println("Join OK")
+//    val aggregatedFOT = aggregateFOT(joinedFOT_origin)
+//    val FlightTableDestination = createFTDestination(aggregatedFOT)
+//    //val flightFinalOrigin = FinalFOT()
+//
+//    val FT_Destination_partition = FlightTableDestination.repartition(NumberOfPartitionsPartitions, $"FT_KEY".getItem("_1"))
+//
+//    println("2nd partitioning OK")
+//
+//    val processedDF = processDataFrame(joinedDF)
+//    println("Processing OK")
+//
+//    val end: Long = System.currentTimeMillis() / 1000
+//    val duration = end - start
+//    println("Duration of join: ", duration)
+//
+//    splitAndSaveData(processedDF, Array.fill(20)(0.05))
+
+    println("Data write complete")
+  }
+
 }
