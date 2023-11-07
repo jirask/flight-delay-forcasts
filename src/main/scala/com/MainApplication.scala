@@ -50,10 +50,12 @@ object MainApplication {
     val partitionsForJoin = StdIn.readInt()
 
     val flightsPreprocessing = new FlightPreprocessing(rawFlightsData, timezoneData)
-    val flights = flightsPreprocessing.buildFlightTable()
+    flightsPreprocessing.buildFlightTable()
+    val flights = flightsPreprocessing.getProcessedFlightData
     val airports = flightsPreprocessing.getAirportList
     val weatherPreprocessing = new WeatherPreprocessing(rawWeatherData, timezoneData, airports)
-    val weather = weatherPreprocessing.buildWeatherTable()
+    weatherPreprocessing.buildWeatherTable()
+    val weather = weatherPreprocessing.getProcessedWeatherData
     val dataJoin = new DataJoin(dbfsDirs("table_finale"),partitionsForJoin, weather, flights )
     dataJoin.executePipeline()
   }

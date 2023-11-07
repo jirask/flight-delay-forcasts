@@ -1,8 +1,9 @@
 package com.preprocess.weather
 
 import com.Utils.SparkSessionWrapper
+import com.twitter.chill.Input
 import org.apache.spark.sql.expressions.UserDefinedFunction
-import org.apache.spark.sql.functions.{col, collect_list, lit, to_date, udf, when}
+import org.apache.spark.sql.functions.{col, collect_list, lit, mean, to_date, udf, when}
 import org.apache.spark.sql.{DataFrame, SparkSession, functions}
 
 /**
@@ -42,22 +43,59 @@ class WeatherPreprocessing(private val rawWeatherData: DataFrame, private val ti
     }
   }
 
+  private def extractWeatherTypes(input: String): String = {
+    val weatherTypesList = List("RA", "SN", "FG", "FG+", "WIND", "FZDZ", "FZRA", "MIFG", "FZFG")
+    val defaultValue = "OTHER"
+    if (weatherTypesList.contains(input)) {
+      input
+    }
+    else {
+      defaultValue
+    }
+  }
 
+
+  private def calculateAverage(weatherDF: DataFrame): DataFrame = {
+    weatherDF
+      .filter($"WindSpeed" =!= -1 && !$"DryBulbCelsius".isNull && !$"WindSpeed".isNull && !$"HourlyPrecip".isNull && !$"Visibility".isNull)
+      .groupBy("Date", "AIRPORT_ID")
+      .agg(
+        mean("DryBulbCelsius").as("average_temperature"),
+        mean("WindSpeed").as("average_windspeed"),
+        mean("Visibility").as("average_visibility"),
+        mean("HourlyPrecip").as("average_hourlyprecip")
+      )
+      .withColumnRenamed("AIRPORT_ID", "AVERAGE_AIRPORT_ID")
+      .withColumnRenamed("Date", "AVERAGE_Date")
+  }
+
+  private val extractWeatherTypes: UserDefinedFunction = udf(extractWeatherTypes _)
+  private val extractSkyConditionUDF: UserDefinedFunction = udf(extractSkyCondition _)
   private def cleanData(weatherDF: DataFrame): DataFrame = {
-    val extractSkyConditionUDF: UserDefinedFunction = udf(extractSkyCondition _)
+    val dailyAverage = calculateAverage(weatherDF)
 
-    val joinedWeather = weatherDF
+    val weatherWithAirports = weatherDF
       .join(airportList, weatherDF("WBAN") === airportList("F_WBAN"), "inner")
       .withColumn("Time_hh", (col("Time") / 100).cast("Int"))
       .withColumn("Time_mm", (col("Time") % 100).cast("Int"))
       .withColumn("DryBulbCelsius", col("DryBulbCelsius").cast("double"))
-      .withColumn("SkyCondition", when(col("SkyCondition") === "M", "").otherwise(extractSkyConditionUDF(col("SkyCondition"))))
+      .withColumn("SkyCondition", extractSkyConditionUDF(col("SkyCondition")))
       .withColumn("Visibility", col("Visibility").cast("double"))
       .withColumn("WindSpeed", when(col("WindSpeed") === "VR", -1).otherwise(col("WindSpeed")).cast("int"))
-      .withColumn("WeatherType", when(col("WeatherType") === "M", "").otherwise(col("WeatherType")))
+      .withColumn("WeatherType", extractWeatherTypes(col("WeatherType")))
+      .withColumn("HourlyPrecip", when(col("HourlyPrecip") === "T", 0).otherwise(col("HourlyPrecip")).cast("double"))
       .dropDuplicates("AIRPORT_ID", "Date", "Time_hh", "Time_mm")
 
-    val groupedWeather = joinedWeather
+
+    val weatherWithAverages = weatherWithAirports
+      .join(dailyAverage, weatherWithAirports("AIRPORT_ID") === dailyAverage("AVERAGE_AIRPORT_ID") && weatherWithAirports("Date") === dailyAverage("AVERAGE_Date"), "inner")
+      .drop("AVERAGE_AIRPORT_ID", "AVERAGE_Date")
+      .withColumn("DryBulbCelsius", when($"DryBulbCelsius".isNull, dailyAverage("average_temperature")).otherwise($"DryBulbCelsius"))
+      .withColumn("Visibility", when($"Visibility".isNull, dailyAverage("average_visibility")).otherwise($"Visibility"))
+      .withColumn("WindSpeed", when($"WindSpeed".isNull, dailyAverage("average_windspeed")).otherwise($"WindSpeed"))
+      .withColumn("HourlyPrecip", when($"HourlyPrecip".isNull, dailyAverage("average_hourlyprecip")).otherwise($"HourlyPrecip"))
+
+    val groupedWeather = weatherWithAverages
       .orderBy($"AIRPORT_ID", $"Date", $"Time_hh", $"Time_mm".asc)
       .groupBy("AIRPORT_ID", "Date", "Time_hh")
       .agg(collect_list("Time_mm").as("collection"))
@@ -68,11 +106,11 @@ class WeatherPreprocessing(private val rawWeatherData: DataFrame, private val ti
       .withColumnRenamed("Time_hh", "W_Time_hh")
       .withColumnRenamed("Time_mm", "W_Time_mm")
 
-    val tableWeather = joinedWeather.join(groupedWeather,
-        joinedWeather("AIRPORT_ID") === groupedWeather("W_AIRPORT_ID") &&
-          joinedWeather("Date") === groupedWeather("W_Date") &&
-          joinedWeather("Time_hh") === groupedWeather("W_Time_hh") &&
-          joinedWeather("Time_mm") === groupedWeather("W_Time_mm"),
+    val tableWeather = weatherWithAverages.join(groupedWeather,
+        weatherWithAverages("AIRPORT_ID") === groupedWeather("W_AIRPORT_ID") &&
+          weatherWithAverages("Date") === groupedWeather("W_Date") &&
+          weatherWithAverages("Time_hh") === groupedWeather("W_Time_hh") &&
+          weatherWithAverages("Time_mm") === groupedWeather("W_Time_mm"),
         "inner")
       .drop("W_AIRPORT_ID", "W_Date", "W_Time_hh", "W_Time_mm")
       .withColumn("Date", to_date($"Date".cast("string"), "yyyyMMdd"))
@@ -89,8 +127,8 @@ class WeatherPreprocessing(private val rawWeatherData: DataFrame, private val ti
   }
 
   /**
-   * mamam
-   * @return ssa
+   * builds the processed weather table
+   * @return processedWeatherData
    */
 
   def buildWeatherTable(): DataFrame = {
@@ -99,7 +137,7 @@ class WeatherPreprocessing(private val rawWeatherData: DataFrame, private val ti
   }
 
   /**
-   * Getter for the processed flight data.
+   * Getter for the processed weather data.
    */
   def getProcessedWeatherData: DataFrame = this.processedWeatherData
 
