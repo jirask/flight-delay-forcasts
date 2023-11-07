@@ -4,7 +4,11 @@ import com.Utils.SparkSessionWrapper
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.{DataFrame, SparkSession}
 
-
+/**
+ * This class processes the flight table by: cleaning NA values and keeping only columns of interest
+ * @param rawFlightData
+ * @param timezoneData
+ */
 class FlightPreprocessing(private val rawFlightData: DataFrame, private val timezoneData: DataFrame) {
 
   private val spark: SparkSession = SparkSessionWrapper.spark
@@ -16,7 +20,7 @@ class FlightPreprocessing(private val rawFlightData: DataFrame, private val time
   /**
    * Cleans the flight data to remove unwanted records and values.
    */
-  private def cleanData(): DataFrame = {
+  def cleanData(): DataFrame = {
     rawFlightData
       .na.fill(0, Seq("WEATHER_DELAY", "NAS_DELAY", "ARR_DELAY_NEW"))
       .na.drop(Seq("CRS_ELAPSED_TIME"))
@@ -38,7 +42,7 @@ class FlightPreprocessing(private val rawFlightData: DataFrame, private val time
   /**
    * Processes cleaned data to convert time values and select necessary columns.
    */
-  private def processData(cleanedData: DataFrame): DataFrame = {
+  def processData(cleanedData: DataFrame): DataFrame = {
     val minutesToSecondsUDF = udf((minutes: Double) => (minutes * 60).toLong)
     val hoursToSecondsUDF = udf((hours: Double) => (hours * 3600).toLong)
 
@@ -57,7 +61,7 @@ class FlightPreprocessing(private val rawFlightData: DataFrame, private val time
    * Extracts unique WBAN values for both origin and destination airports
    ** @return A list of all airports
    */
-  private def buildAirportList(): DataFrame = {
+  def buildAirportList(): DataFrame = {
 
     def extractAirportInfo(columnNames: (String, String)): DataFrame =
       processedFlightData.select(columnNames._1, columnNames._2)

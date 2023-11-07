@@ -5,6 +5,12 @@ import org.apache.spark.sql.expressions.UserDefinedFunction
 import org.apache.spark.sql.functions.{col, collect_list, lit, to_date, udf, when}
 import org.apache.spark.sql.{DataFrame, SparkSession, functions}
 
+/**
+ * This class processes the weather table by: cleaning NA values: switching with the average or removing them, and keeping only columns of interest
+ * @param rawWeatherData this variable con
+ * @param timezoneData
+ * @param airportList
+ */
 class WeatherPreprocessing(private val rawWeatherData: DataFrame, private val timezoneData: DataFrame, private val airportList: DataFrame) {
 
   private val spark: SparkSession = SparkSessionWrapper.spark
@@ -18,15 +24,22 @@ class WeatherPreprocessing(private val rawWeatherData: DataFrame, private val ti
 
   private def filterWBANWeather(): DataFrame = {
     val validWBANs = airportList.select("F_WBAN").as[Int].collect().toSeq
-    val usefulColumns = Array("WBAN", "Date", "Time", "DryBulbCelsius", "SkyCOndition", "Visibility", "WindDirection", "WindSpeed", "WeatherType", "StationPressure")
+    val usefulColumns = Array("WBAN", "Date", "Time", "DryBulbCelsius", "SkyCOndition", "Visibility", "WindSpeed", "WeatherType", "HourlyPrecip")
     selectUsefulColumns(rawWeatherData, usefulColumns)
       .where($"WBAN".isin(validWBANs: _*))
   }
 
   private def extractSkyCondition(inputString: String): String = {
-    val cloudLayers = inputString.split(" ")
-    val lastCloudLayer = cloudLayers.lastOption.getOrElse("")
-    "[A-Za-z]+$".r.findFirstIn(lastCloudLayer).getOrElse("")
+    Option(inputString) match {
+      case Some(str) if str.nonEmpty =>
+        print(str)
+        val cloudLayers = str.trim.split("\\s+")
+        val lastCloudLayer = cloudLayers.lastOption.getOrElse("OTHER")
+        val pattern = "[A-Za-z]+(?=\\d*$)".r
+        val result = pattern.findFirstIn(lastCloudLayer)
+        result.getOrElse("OTHER")
+      case _ => "M"
+    }
   }
 
 
@@ -65,7 +78,7 @@ class WeatherPreprocessing(private val rawWeatherData: DataFrame, private val ti
       .withColumn("Date", to_date($"Date".cast("string"), "yyyyMMdd"))
       .withColumn("Weather_TIMESTAMP", functions.concat(col("Date").cast("string"), lit(" "), col("Time_hh").cast("string"), lit(":"), lit(0)).cast("timestamp"))
       .drop("Date", "Time", "Time_hh", "Time_mm")
-      .select(Array("AIRPORT_ID", "Weather_TIMESTAMP", "DryBulbCelsius", "SkyCOndition", "Visibility", "WindDirection", "WindSpeed", "WeatherType", "StationPressure").map(col): _*)
+      .select(Array("AIRPORT_ID", "Weather_TIMESTAMP", "DryBulbCelsius", "SkyCOndition", "Visibility", "WindSpeed", "WeatherType", "HourlyPrecip").map(col): _*)
 
     tableWeather
   }
@@ -75,11 +88,19 @@ class WeatherPreprocessing(private val rawWeatherData: DataFrame, private val ti
     cleanData(filteredWeather)
   }
 
+  /**
+   * mamam
+   * @return ssa
+   */
+
   def buildWeatherTable(): DataFrame = {
     this.processedWeatherData = processData()
     this.processedWeatherData
   }
 
+  /**
+   * Getter for the processed flight data.
+   */
   def getProcessedWeatherData: DataFrame = this.processedWeatherData
 
 }

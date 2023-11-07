@@ -8,5 +8,6 @@ case class Weather
   SkyCOndition: String,
   Visibility: Double,
   WindSpeed: Double,
-  WeatherType: String
+  WeatherType: String,
+  HourlyPrecip:Double
 )
