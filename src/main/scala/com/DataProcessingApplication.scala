@@ -9,7 +9,7 @@ import org.apache.spark.sql.SparkSession
 import java.nio.file.Paths
 import scala.io.StdIn
 
-object MainApplication {
+object DataProcessingApplication {
   private val spark: SparkSession = SparkSessionWrapper.spark
 
   def main(args: Array[String]): Unit = {
