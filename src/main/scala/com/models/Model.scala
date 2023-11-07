@@ -11,9 +11,9 @@ import org.apache.spark.ml.feature.{StringIndexer, VectorAssembler, VectorIndexe
 
 import scala.collection.mutable.ArrayBuffer
 
-class RandomForest (spark: SparkSession, dbfsDir_ML: String, ThresdholdDelay: Int,
-                    PlageHoraireOrigin: Int, PlageHoraireDestination: Int, maxCat: Int,
-                    handleInvalid: String, saisieNumTree: Int)
+class Model(spark: SparkSession, pathDataML: String, delayThreshold: Int,
+            originTimeRange: Int, destinationTimeRange: Int, maxCat: Int,
+            handleInvalid: String, numTreesForRandomForest: Int)
 {
 
   import spark.implicits._
@@ -21,7 +21,7 @@ class RandomForest (spark: SparkSession, dbfsDir_ML: String, ThresdholdDelay: In
     spark.read.format("parquet")
       .option("header", "true")
       .option("inferSchema", "true")
-      .parquet(s"$dbfsDir_ML/chunk_$index.parquet")
+      .parquet(s"$pathDataML/chunk_$index.parquet")
   }
 
   /**
@@ -36,7 +36,7 @@ class RandomForest (spark: SparkSession, dbfsDir_ML: String, ThresdholdDelay: In
    * Creation of target depending on threshold, year, month and date columns, cast airport_id to string
    */
   def processTable(df: DataFrame): DataFrame = {
-    df.withColumn("Target", when($"Class" >= ThresdholdDelay, 1).otherwise(0))
+    df.withColumn("Target", when($"Class" >= delayThreshold, 1).otherwise(0))
       .withColumn("ORIGIN_AIRPORT_ID", $"ORIGIN_AIRPORT_ID".cast("string"))
       .withColumn("DEST_AIRPORT_ID", $"DEST_AIRPORT_ID".cast("string"))
       .withColumn("Hour_SO", hour($"CRS_DEP_TIMESTAMP"))
@@ -69,10 +69,10 @@ class RandomForest (spark: SparkSession, dbfsDir_ML: String, ThresdholdDelay: In
   def prepareFinalTable(df: DataFrame): DataFrame = {
     val constantColumns = Array("ORIGIN_AIRPORT_ID", "DEST_AIRPORT_ID", "Hour_SO", "Hour_SA",
       "Month_SO", "Month_SA", "Day_SO", "Day_SA", "Year_SO", "Year_SA", "Target")
-    val col_plage_horaire_origin = filterColumnsByPattern(df, "WO", PlageHoraireOrigin)
-    val col_plage_horaire_destination = filterColumnsByPattern(df, "WD", PlageHoraireDestination)
+    val originTimeRangeCol = filterColumnsByPattern(df, "WO", originTimeRange)
+    val destinationTimeRangeCol = filterColumnsByPattern(df, "WD", destinationTimeRange)
 
-    df.select((col_plage_horaire_origin ++ col_plage_horaire_destination ++ constantColumns).map(col): _*)
+    df.select((originTimeRangeCol ++ destinationTimeRangeCol ++ constantColumns).map(col): _*)
   }
 
   /**
@@ -197,7 +197,7 @@ class RandomForest (spark: SparkSession, dbfsDir_ML: String, ThresdholdDelay: In
       .setLabelCol("label")
       .setFeaturesCol("features")
       .setMaxBins(maxCat)
-      .setNumTrees(saisieNumTree)
+      .setNumTrees(numTreesForRandomForest)
       .setMaxDepth(20)
       .setSubsamplingRate(0.5)
       .setMaxBins(maxCat)
