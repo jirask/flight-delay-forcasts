@@ -1,10 +1,18 @@
 # Variables
-  DATA_PATH="/path/to/output/data" # HDFS path where DataProcessingApplication writes data
   MAX_WAIT_TIME=3600                # Maximum wait time in seconds
-  SLEEP_INTERVAL=10                # How long to wait between checks in seconds
+  SLEEP_INTERVAL=30                # How long to wait between checks in seconds
   DATA_PROCESSING_JAR="target/scala-2.12/data_processing.jar"  # Replace with the path to your DataProcessingApplication jar
   DELAY_PREDICTION_JAR="target/scala-2.12/delay_prediction.jar"  # Replace with the path to your DelayPredictionApplication jar
 
+  # Prompt the user to enter the HDFS path where DataProcessingApplication will write data
+  echo "Enter the HDFS path where DataProcessingApplication writes data:"
+  read -r DATA_PATH
+
+  # Ensure that DATA_PATH is not empty
+  if [[ -z "$DATA_PATH" ]]; then
+    echo "You must enter a valid HDFS path."
+    exit 1
+  fi
   # Run the DataProcessingApplication
   spark-submit \
     --master spark://localhost:7077 \
