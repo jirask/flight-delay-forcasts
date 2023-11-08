@@ -267,12 +267,13 @@ class DataJoin(joinedTablePath: String,
     println("2nd partitioning and Join OK")
 
     val processedFlightWeatherTable = ProcessFlightWeatherTable(joinedFlightsAndWeatherFinal)
+    val finalTable = createFinalTable(processedFlightWeatherTable)
 
     val end: Long = System.currentTimeMillis() / 1000
     val duration = end - start
     println("Duration of join: ", duration)
 
-    splitAndSaveData(processedFlightWeatherTable)
+    splitAndSaveData(finalTable)
     println("Data write complete")
   }
 
