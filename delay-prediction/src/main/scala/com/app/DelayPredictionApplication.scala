@@ -44,7 +44,7 @@ object DelayPredictionApplication {
       .master("local[*]")
       .getOrCreate()
     val maxCat = 20
-    val handleInvalid = "skip"
+    val handleInvalid = "keep"
 
     val model = new Model(
       spark,
