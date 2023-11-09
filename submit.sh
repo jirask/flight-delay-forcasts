@@ -3,6 +3,8 @@
   SLEEP_INTERVAL=30                # How long to wait between checks in seconds
   DATA_PROCESSING_JAR="target/scala-2.12/data_processing.jar"  # Replace with the path to your DataProcessingApplication jar
   DELAY_PREDICTION_JAR="target/scala-2.12/delay_prediction.jar"  # Replace with the path to your DelayPredictionApplication jar
+  DATA_PROCESSING_JAR_HDFS="dataprocessingapp_2.12-0.1.jar"  # Replace with the path to your DataProcessingApplication jar
+  DELAY_PREDICTION_JAR_HDFS="delaypredictionapp_2.12-0.1.jar"
 
   # Prompt the user to enter the HDFS path where DataProcessingApplication will write data
   echo "Enter the HDFS path where DataProcessingApplication writes data:"
@@ -15,12 +17,12 @@
   fi
   # Run the DataProcessingApplication
   spark-submit \
-    --master spark://localhost:7077 \
-    --deploy-mode client \
-    --executor-cores 2 \
-    --num-executors 1 \
+    --executor-cores 12 \
+    --num-executors 4 \
+    --executor-memory 24G\
     --class com.DataProcessingApplication \
-    $DATA_PROCESSING_JAR
+    --master local dataprocessingapp_2.12-0.1.jar
+    ##$DATA_PROCESSING_JAR
 
   # Wait for the data to appear in HDFS
   elapsed_time=0

@@ -29,10 +29,9 @@ class WeatherPreprocessing(private val rawWeatherData: DataFrame, private val ti
       .where($"WBAN".isin(validWBANs: _*))
   }
 
-  private def extractSkyCondition(inputString: String): String = {
+  val extractSkyCondition: UserDefinedFunction = udf((inputString: String) => {
     Option(inputString) match {
       case Some(str) if str.nonEmpty =>
-        print(str)
         val cloudLayers = str.trim.split("\\s+")
         val lastCloudLayer = cloudLayers.lastOption.getOrElse("OTHER")
         val pattern = "[A-Za-z]+(?=\\d*$)".r
@@ -40,18 +39,7 @@ class WeatherPreprocessing(private val rawWeatherData: DataFrame, private val ti
         result.getOrElse("OTHER")
       case _ => "M"
     }
-  }
-
-  private def extractWeatherTypes(input: String): String = {
-    val weatherTypesList = List("RA", "SN", "FG", "FG+", "WIND", "FZDZ", "FZRA", "MIFG", "FZFG")
-    val defaultValue = "OTHER"
-    if (weatherTypesList.contains(input)) {
-      input
-    }
-    else {
-      defaultValue
-    }
-  }
+  })
 
 
   private def calculateAverage(weatherDF: DataFrame): DataFrame = {
@@ -68,24 +56,22 @@ class WeatherPreprocessing(private val rawWeatherData: DataFrame, private val ti
       .withColumnRenamed("Date", "AVERAGE_Date")
   }
 
-  private val extractWeatherTypes: UserDefinedFunction = udf(extractWeatherTypes _)
-  private val extractSkyConditionUDF: UserDefinedFunction = udf(extractSkyCondition _)
   private def cleanData(weatherDF: DataFrame): DataFrame = {
-    val dailyAverage = calculateAverage(weatherDF)
-
+    val weather_attributes = Array("AIRPORT_ID","Date","Time","DryBulbCelsius","SkyCOndition","Visibility","WindSpeed","WeatherType","HourlyPrecip").map(col)
     val weatherWithAirports = weatherDF
       .join(airportList, weatherDF("WBAN") === airportList("F_WBAN"), "inner")
+      .select(weather_attributes: _*)
       .withColumn("Time_hh", (col("Time") / 100).cast("Int"))
       .withColumn("Time_mm", (col("Time") % 100).cast("Int"))
       .withColumn("DryBulbCelsius", col("DryBulbCelsius").cast("double"))
-      .withColumn("SkyCondition", extractSkyConditionUDF(col("SkyCondition")))
+      .withColumn("SkyCondition", extractSkyCondition(col("SkyCondition")))
       .withColumn("Visibility", col("Visibility").cast("double"))
       .withColumn("WindSpeed", when(col("WindSpeed") === "VR", -1).otherwise(col("WindSpeed")).cast("int"))
-      .withColumn("WeatherType", extractWeatherTypes(col("WeatherType")))
-      .withColumn("HourlyPrecip", when(col("HourlyPrecip") === "T", 0).otherwise(col("HourlyPrecip")).cast("double"))
+      .withColumn("WeatherType", when(col("WeatherType") === "M","").otherwise($"WeatherType"))
+      .withColumn("HourlyPrecip",when(col("HourlyPrecip") === "T" || col("HourlyPrecip") === " ",0).otherwise(col("HourlyPrecip")).cast("double"))
       .dropDuplicates("AIRPORT_ID", "Date", "Time_hh", "Time_mm")
 
-
+    val dailyAverage = calculateAverage(weatherWithAirports)
     val weatherWithAverages = weatherWithAirports
       .join(dailyAverage, weatherWithAirports("AIRPORT_ID") === dailyAverage("AVERAGE_AIRPORT_ID") && weatherWithAirports("Date") === dailyAverage("AVERAGE_Date"), "inner")
       .drop("AVERAGE_AIRPORT_ID", "AVERAGE_Date")
