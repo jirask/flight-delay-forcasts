@@ -63,10 +63,11 @@ class DataJoin(joinedTablePath: String,
         val datePlus1Day = localDateTime.plus(1, ChronoUnit.DAYS).toLocalDate
 
         if (datePlus12Hours == datePlus1Day) {
-          Seq((joinKey, "OT") -> weatherRow, (weather.AIRPORT_ID, Date.valueOf(datePlus1Day), "OT") -> weatherRow)
+          Seq(((joinKey, "OT"), weatherRow), ((weather.AIRPORT_ID, Date.valueOf(datePlus1Day)), "OT") -> weatherRow)
         } else {
-          Seq((joinKey, "OT") -> weatherRow)
+          Seq(((joinKey, "OT"), weatherRow))
         }
+
       }
       .withColumnRenamed("_1", "OT_KEY")
       .withColumnRenamed("_2", "OT_VALUE")
@@ -167,7 +168,8 @@ class DataJoin(joinedTablePath: String,
   def ProcessFlightWeatherTable(joinedFlightsAndWeatherFinal: DataFrame): DataFrame = {
     joinedFlightsAndWeatherFinal
       .map { row =>
-        val weatherList = row.getAs[Seq[Row]](1)
+        // Assuming rowToWeather is available in the scope
+        val weatherListD = row.getAs[Seq[Row]](1).map(rowToWeather)
         val flightInfo = Flight(
           ORIGIN_AIRPORT_ID = row.getStruct(3).getInt(0),
           DEST_AIRPORT_ID = row.getStruct(3).getInt(1),
@@ -178,19 +180,31 @@ class DataJoin(joinedTablePath: String,
 
         val twelveHoursBeforeCRSDeparture = Timestamp.valueOf(flightInfo.CRS_DEP_TIMESTAMP.toLocalDateTime.minus(12, ChronoUnit.HOURS))
 
-        val sortedWeatherList = weatherList.sortWith { (row1, row2) => row1.getAs[java.sql.Timestamp]("_2").before(row2.getAs[java.sql.Timestamp]("_2"))
-        }.map(rowToWeather)
-        val relevantWeatherData = sortedWeatherList.collect {
-          case weather if twelveHoursBeforeCRSDeparture.before(weather.Weather_TIMESTAMP) &&
-            (weather.Weather_TIMESTAMP.before(flightInfo.CRS_DEP_TIMESTAMP) ||
-              weather.Weather_TIMESTAMP.equals(flightInfo.CRS_DEP_TIMESTAMP)) => weather
+        val weatherListO = row.getAs[Seq[Row]](4).map(rowToWeather)
+
+        val sortedWeatherListD = weatherListD.sortWith { (weather1, weather2) =>
+          weather1.Weather_TIMESTAMP.before(weather2.Weather_TIMESTAMP)
         }
-        (flightInfo, relevantWeatherData)
+        val relevantWeatherDataD = sortedWeatherListD.filter { weather =>
+          twelveHoursBeforeCRSDeparture.before(weather.Weather_TIMESTAMP) &&
+            (weather.Weather_TIMESTAMP.before(flightInfo.CRS_DEP_TIMESTAMP) ||
+              weather.Weather_TIMESTAMP.equals(flightInfo.CRS_DEP_TIMESTAMP))
+        }
+
+        val sortedWeatherListDestination = weatherListD.sortWith { (weather1, weather2) =>
+          weather1.Weather_TIMESTAMP.before(weather2.Weather_TIMESTAMP)
+        }
+        val relevantWeatherDataDestination = sortedWeatherListDestination.filter { weather =>
+          twelveHoursBeforeCRSDeparture.before(weather.Weather_TIMESTAMP) &&
+            (weather.Weather_TIMESTAMP.before(flightInfo.SCHEDULED_ARRIVAL_TIMESTAMP) ||
+              weather.Weather_TIMESTAMP.equals(flightInfo.SCHEDULED_ARRIVAL_TIMESTAMP))
+        }
+
+        (flightInfo, weatherListO.toArray, relevantWeatherDataDestination.toArray)
       }
-      .withColumnRenamed("_1", "FT")
-      .withColumnRenamed("_2", "WO_List")
-      .withColumnRenamed("_3", "WD_List")
+      .toDF("FT", "WO_List", "WD_List")
   }
+
 
   def createFinalTable(ProcessedFlightWeatherTable: DataFrame): DataFrame = {
     ProcessedFlightWeatherTable
@@ -231,14 +245,14 @@ class DataJoin(joinedTablePath: String,
    * Method for splitting the data into chunks and saving it as Parquet
    * @param df
    */
-  def splitAndSaveData(df: DataFrame): Unit = {
-    val fractions = Array.fill(20)(0.05)
+  def splitAndSaveData(df: DataFrame, outputPath: String): Unit = {
+    val fractions = Array(0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05,0.05)
     val splits = df.randomSplit(fractions)
     splits.zipWithIndex.foreach { case (split, index) =>
       split.write.format("parquet")
         .option("header", "true")
         .mode("overwrite")
-        .save(s"$joinedTablePath/chunk_$index.parquet")
+        .save(s"$outputPath/chunk_$index.parquet")
     }
   }
 
@@ -255,25 +269,32 @@ class DataJoin(joinedTablePath: String,
     val flightOrigin = createFlightsOriginDataset(flight_ds)
     val WeatherOrigin = createWeatherOriginDataset(weather_ds)
     val flightOriginPartition = createFlightOriginPartition(flightOrigin, NumberOfPartitions)
+
     val weatherOriginPartition = createWeatherOriginPartition(WeatherOrigin, NumberOfPartitions)
+
     val joinedWeatherOriginAndFlightOrigin = joinWeatherOriginAndFlightOrigin(weatherOriginPartition, flightOriginPartition)
 
     println("1st Partitioning and Join OK")
 
     val aggregatedFOT = aggregateFOT(joinedWeatherOriginAndFlightOrigin)
+
     val flightDestination = createFlightDestination(aggregatedFOT)
+
     val joinedFlightsAndWeatherFinal = joinFlightsAndWeatherFinal(flightDestination, weatherOriginPartition ,NumberOfPartitions)
 
     println("2nd partitioning and Join OK")
 
     val processedFlightWeatherTable = ProcessFlightWeatherTable(joinedFlightsAndWeatherFinal)
+
     val finalTable = createFinalTable(processedFlightWeatherTable)
+    finalTable.show(10)
 
     val end: Long = System.currentTimeMillis() / 1000
     val duration = end - start
     println("Duration of join: ", duration)
+    println("Writing Data....")
 
-    splitAndSaveData(finalTable)
+    splitAndSaveData(finalTable, joinedTablePath)
     println("Data write complete")
   }
 

@@ -61,10 +61,10 @@ class FlightPreprocessing(private val rawFlightData: DataFrame, private val time
    * Extracts unique WBAN values for both origin and destination airports
    ** @return A list of all airports
    */
-  def buildAirportList(): DataFrame = {
+  def buildAirportList(df: DataFrame): DataFrame = {
 
     def extractAirportInfo(columnNames: (String, String)): DataFrame =
-      processedFlightData.select(columnNames._1, columnNames._2)
+      df.select(columnNames._1, columnNames._2)
         .withColumnRenamed(columnNames._1, "AIRPORT_ID")
         .withColumnRenamed(columnNames._2, "F_WBAN")
         .distinct
@@ -81,8 +81,8 @@ class FlightPreprocessing(private val rawFlightData: DataFrame, private val time
    */
   def buildFlightTable(): DataFrame = {
     val cleanedData = cleanData()
+    airportList = buildAirportList(cleanedData)
     processedFlightData = processData(cleanedData)
-    airportList = buildAirportList()
     processedFlightData
   }
 
