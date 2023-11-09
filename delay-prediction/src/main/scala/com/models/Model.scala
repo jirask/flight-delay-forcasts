@@ -128,20 +128,39 @@ class Model(spark: SparkSession, pathDataML: String, delayThreshold: Int,
     }.drop(timeStampCol: _*)
   }
 
-  // Function to select columns based on user choices regarding year, month, and day
-  def selectColumnsBasedOnUserChoices(df: DataFrame, annee: Int, mois: Int, jour: Int): DataFrame = {
-    val colSansDate = ArrayBuffer[String]()
+  /**
+   * Takes a DataFrame and a list of weather types and creates new columns in the DataFrame
+   * for each weather type. Columns that contain "6_W" are considered for splitting.
+   *
+   * @param weatherDf The DataFrame containing weather data.
+   * @return A DataFrame with new weather type columns.
+   */
+  def createWeatherTypeColumns(weatherDf: DataFrame): DataFrame = {
+    // Relevant weather types that might affect the delay
+    val weatherTypes = List("RA","SN","FG+","WIND","FZDZ","FZRA","FZFG")
+    // Select columns to split based on column names starting with "6_W"
+    val columnsWeatherTypeToApplySplit = weatherDf.columns.filter(_.startsWith("6_W")).toSeq
 
-    for (col <- df.columns) {
-      if (annee == 0 && !col.contains("Year") || annee != 0) {
-        if (mois == 0 && !col.contains("Month") || mois != 0) {
-          if (jour == 0 && !col.contains("Day") || jour != 0) {
-            colSansDate += col
-          }
-        }
+    var df = weatherDf
+
+    // Add new columns for each weather type
+    weatherTypes.foreach { weatherType =>
+      columnsWeatherTypeToApplySplit.foreach { colName =>
+        df = df.withColumn(s"${colName}_$weatherType", when(col(colName).contains(weatherType), 1).otherwise(0))
       }
     }
 
+    // Drop the original weather type columns
+    df.drop(columnsWeatherTypeToApplySplit: _*)
+  }
+
+  // Function to select columns based on user choices regarding year, month, and day
+  def selectColumnsBasedOnUserChoices(df: DataFrame, year: Int, month: Int, day: Int): DataFrame = {
+    val colSansDate = df.columns.filter { col =>
+      (year != 0 || !col.contains("Year")) &&
+        (month != 0 || !col.contains("Month")) &&
+        (day != 0 || !col.contains("Day"))
+    }
     df.select(colSansDate.map(col): _*)
   }
 
@@ -249,8 +268,11 @@ class Model(spark: SparkSession, pathDataML: String, delayThreshold: Int,
     val timestampSplitTable = splitTimestampColumns(noDuplicateIdsTable)
     println("Step 6: Splitting of timestamp columns")
 
+    //Creates new columns in the DataFrame for the weather type
+    val withWeatherTypeColumns = createWeatherTypeColumns(timestampSplitTable)
+
     // Example user choices: annee = 1, mois = 0, jour = 0
-    val userChoiceFilteredTable = selectColumnsBasedOnUserChoices(timestampSplitTable, annee = 1, mois = 0, jour = 0)
+    val userChoiceFilteredTable = selectColumnsBasedOnUserChoices(withWeatherTypeColumns, year = 1, month = 0, day = 0)
     println("Step 7: Selection of columns based on user choices")
 
     // Extract column names by type for the final file
