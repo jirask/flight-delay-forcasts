@@ -7,5 +7,5 @@ case class Flight
   CRS_DEP_TIMESTAMP: java.sql.Timestamp,
   SCHEDULED_ARRIVAL_TIMESTAMP: java.sql.Timestamp,
   ARR_DELAY_NEW: Double
-)
+) extends Serializable
 

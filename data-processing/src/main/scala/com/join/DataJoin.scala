@@ -10,11 +10,13 @@ import java.sql.Timestamp
 import java.time.temporal.ChronoUnit
 import org.apache.spark.sql.{DataFrame, Dataset, Row, SparkSession, functions}
 
-class DataJoin(joinedTablePath: String,
+import scala.collection.mutable.ArrayBuffer
+
+class DataJoin (joinedTablePath: String,
                NumberOfPartitions: Int,
                weather_df: DataFrame,
                flight_df: DataFrame) {
-  private val spark: SparkSession = SparkSessionWrapper.spark
+  @transient private val spark: SparkSession = SparkSessionWrapper.spark
 
   import spark.implicits._
 
@@ -93,18 +95,6 @@ class DataJoin(joinedTablePath: String,
 
   }
 
-  private def rowToWeather(row: Row): Weather = {
-    Weather(
-      AIRPORT_ID = row.getInt(0),
-      Weather_TIMESTAMP = row.getTimestamp(1),
-      DryBulbCelsius = row.getDouble(2),
-      SkyCOndition = row.getString(3),
-      Visibility = row.getDouble(4),
-      WindSpeed = row.getDouble(5),
-      WeatherType = row.getString(6),
-      HourlyPrecip = row.getDouble(7)
-    )
-  }
 
   def aggregateFOT(WeatherOriginAndFlightOriginJoined: DataFrame): DataFrame = {
     WeatherOriginAndFlightOriginJoined
@@ -121,7 +111,7 @@ class DataJoin(joinedTablePath: String,
         val twelveHoursBeforeCRSDeparture = Timestamp.valueOf(flightInfo.CRS_DEP_TIMESTAMP.toLocalDateTime.minus(12, ChronoUnit.HOURS))
 
         val sortedWeatherList = weatherList.sortWith { (row1, row2) => row1.getAs[java.sql.Timestamp]("_2").before(row2.getAs[java.sql.Timestamp]("_2"))
-        }.map(rowToWeather)
+        }.map(DataJoinUtils.rowToWeather)
         val relevantWeatherData = sortedWeatherList.collect {
           case weather if twelveHoursBeforeCRSDeparture.before(weather.Weather_TIMESTAMP) &&
             (weather.Weather_TIMESTAMP.before(flightInfo.CRS_DEP_TIMESTAMP) ||
@@ -135,7 +125,7 @@ class DataJoin(joinedTablePath: String,
 
   def createFlightDestination(aggregatedFOT: DataFrame): DataFrame = {
     aggregatedFOT.flatMap { row =>
-        val weatherList = row.getAs[Seq[Row]](1).map(rowToWeather).toArray
+        val weatherList = row.getAs[Seq[Row]](1).map(DataJoinUtils.rowToWeather).toArray
         val flightInfo = Flight(
           ORIGIN_AIRPORT_ID = row.getStruct(0).getInt(0),
           DEST_AIRPORT_ID = row.getStruct(0).getInt(1),
@@ -165,44 +155,91 @@ class DataJoin(joinedTablePath: String,
   }
 
 
+//  def ProcessFlightWeatherTable(joinedFlightsAndWeatherFinal: DataFrame): DataFrame = {
+//    joinedFlightsAndWeatherFinal
+//      .map { row =>
+//        // Assuming rowToWeather is available in the scope
+//        val weatherListD = row.getAs[Seq[Row]](1).map(DataJoinUtils.rowToWeather)
+//        val flightInfo = Flight(
+//          ORIGIN_AIRPORT_ID = row.getStruct(3).getInt(0),
+//          DEST_AIRPORT_ID = row.getStruct(3).getInt(1),
+//          CRS_DEP_TIMESTAMP = row.getStruct(3).getTimestamp(2),
+//          SCHEDULED_ARRIVAL_TIMESTAMP = row.getStruct(3).getTimestamp(3),
+//          ARR_DELAY_NEW = row.getStruct(3).getDouble(4)
+//        )
+//
+//        val twelveHoursBeforeCRSDeparture = Timestamp.valueOf(flightInfo.CRS_DEP_TIMESTAMP.toLocalDateTime.minus(12, ChronoUnit.HOURS))
+//
+//        val weatherListO = row.getAs[Seq[Row]](4).map(DataJoinUtils.rowToWeather)
+//
+//        val sortedWeatherListD = weatherListD.sortWith { (weather1, weather2) =>
+//          weather1.Weather_TIMESTAMP.before(weather2.Weather_TIMESTAMP)
+//        }
+//        val relevantWeatherDataD = sortedWeatherListD.filter { weather =>
+//          twelveHoursBeforeCRSDeparture.before(weather.Weather_TIMESTAMP) &&
+//            (weather.Weather_TIMESTAMP.before(flightInfo.CRS_DEP_TIMESTAMP) ||
+//              weather.Weather_TIMESTAMP.equals(flightInfo.CRS_DEP_TIMESTAMP))
+//        }
+//
+//        val sortedWeatherListDestination = weatherListD.sortWith { (weather1, weather2) =>
+//          weather1.Weather_TIMESTAMP.before(weather2.Weather_TIMESTAMP)
+//        }
+//        val relevantWeatherDataDestination = sortedWeatherListDestination.filter { weather =>
+//          twelveHoursBeforeCRSDeparture.before(weather.Weather_TIMESTAMP) &&
+//            (weather.Weather_TIMESTAMP.before(flightInfo.SCHEDULED_ARRIVAL_TIMESTAMP) ||
+//              weather.Weather_TIMESTAMP.equals(flightInfo.SCHEDULED_ARRIVAL_TIMESTAMP))
+//        }
+//
+//        (flightInfo, weatherListO.toArray, relevantWeatherDataDestination.toArray)
+//      }
+//      .toDF("FT", "WO_List", "WD_List")
+//  }
+
   def ProcessFlightWeatherTable(joinedFlightsAndWeatherFinal: DataFrame): DataFrame = {
     joinedFlightsAndWeatherFinal
-      .map { row =>
-        // Assuming rowToWeather is available in the scope
-        val weatherListD = row.getAs[Seq[Row]](1).map(rowToWeather)
-        val flightInfo = Flight(
-          ORIGIN_AIRPORT_ID = row.getStruct(3).getInt(0),
-          DEST_AIRPORT_ID = row.getStruct(3).getInt(1),
-          CRS_DEP_TIMESTAMP = row.getStruct(3).getTimestamp(2),
-          SCHEDULED_ARRIVAL_TIMESTAMP = row.getStruct(3).getTimestamp(3),
-          ARR_DELAY_NEW = row.getStruct(3).getDouble(4)
+      .map { raw =>
+
+        val weather_D_Array = raw.getAs[Seq[Row]](1)
+        val flights = Flight(
+          ORIGIN_AIRPORT_ID = raw.getStruct(3).getInt(0),
+          DEST_AIRPORT_ID = raw.getStruct(3).getInt(1),
+          CRS_DEP_TIMESTAMP = raw.getStruct(3).getTimestamp(2),
+          SCHEDULED_ARRIVAL_TIMESTAMP = raw.getStruct(3).getTimestamp(3),
+          ARR_DELAY_NEW = raw.getStruct(3).getDouble(4)
         )
 
-        val twelveHoursBeforeCRSDeparture = Timestamp.valueOf(flightInfo.CRS_DEP_TIMESTAMP.toLocalDateTime.minus(12, ChronoUnit.HOURS))
 
-        val weatherListO = row.getAs[Seq[Row]](4).map(rowToWeather)
+        val weather_O_Array = raw.getAs[Seq[Row]](4).map(DataJoinUtils.rowToWeather).toArray
 
-        val sortedWeatherListD = weatherListD.sortWith { (weather1, weather2) =>
-          weather1.Weather_TIMESTAMP.before(weather2.Weather_TIMESTAMP)
+
+        // etape 1: convertir le java.sql.timestamp en java.time.LocalDateTime
+        val timestamp_CRS_Arrival = flights.SCHEDULED_ARRIVAL_TIMESTAMP.toLocalDateTime
+        //Etapes 2 & 3 : retirer 12h et convertir le résultat de java.time.LocalDateTime en java.sql.Timestamp
+        val timestamp_CRS_Arrival_moins12h: Timestamp = Timestamp.valueOf(timestamp_CRS_Arrival.plus(-12, ChronoUnit.HOURS))
+
+
+        val sortedWeatherArray_D: Array[Weather] = weather_D_Array.sortWith { (row1, row2) => row1.getAs[java.sql.Timestamp]("_2").before(row2.getAs[java.sql.Timestamp]("_2"))
+        }.map(DataJoinUtils.rowToWeather).toArray
+
+
+        val AT = ArrayBuffer.empty[Weather]
+        AT.clear()
+
+
+        sortedWeatherArray_D.foreach { row => {
+          val localDateTime = row.Weather_TIMESTAMP
+          if (timestamp_CRS_Arrival_moins12h.before(localDateTime) &&
+            (localDateTime.before(flights.SCHEDULED_ARRIVAL_TIMESTAMP) || localDateTime.equals(flights.SCHEDULED_ARRIVAL_TIMESTAMP))
+          )
+            AT += row
         }
-        val relevantWeatherDataD = sortedWeatherListD.filter { weather =>
-          twelveHoursBeforeCRSDeparture.before(weather.Weather_TIMESTAMP) &&
-            (weather.Weather_TIMESTAMP.before(flightInfo.CRS_DEP_TIMESTAMP) ||
-              weather.Weather_TIMESTAMP.equals(flightInfo.CRS_DEP_TIMESTAMP))
         }
 
-        val sortedWeatherListDestination = weatherListD.sortWith { (weather1, weather2) =>
-          weather1.Weather_TIMESTAMP.before(weather2.Weather_TIMESTAMP)
-        }
-        val relevantWeatherDataDestination = sortedWeatherListDestination.filter { weather =>
-          twelveHoursBeforeCRSDeparture.before(weather.Weather_TIMESTAMP) &&
-            (weather.Weather_TIMESTAMP.before(flightInfo.SCHEDULED_ARRIVAL_TIMESTAMP) ||
-              weather.Weather_TIMESTAMP.equals(flightInfo.SCHEDULED_ARRIVAL_TIMESTAMP))
-        }
-
-        (flightInfo, weatherListO.toArray, relevantWeatherDataDestination.toArray)
+        (flights, weather_O_Array, AT)
       }
-      .toDF("FT", "WO_List", "WD_List")
+      .withColumnRenamed("_1", "FT")
+      .withColumnRenamed("_2", "WO_List")
+      .withColumnRenamed("_3", "WD_List")
   }
 
 
@@ -272,7 +309,9 @@ class DataJoin(joinedTablePath: String,
 
     val weatherOriginPartition = createWeatherOriginPartition(WeatherOrigin, NumberOfPartitions)
 
+
     val joinedWeatherOriginAndFlightOrigin = joinWeatherOriginAndFlightOrigin(weatherOriginPartition, flightOriginPartition)
+
 
     println("1st Partitioning and Join OK")
 
@@ -286,8 +325,11 @@ class DataJoin(joinedTablePath: String,
 
     val processedFlightWeatherTable = ProcessFlightWeatherTable(joinedFlightsAndWeatherFinal)
 
+
     val finalTable = createFinalTable(processedFlightWeatherTable)
-    finalTable.show(10)
+    println("finalTable")
+
+    finalTable.show(1)
 
     val end: Long = System.currentTimeMillis() / 1000
     val duration = end - start
@@ -299,3 +341,20 @@ class DataJoin(joinedTablePath: String,
   }
 
 }
+
+object DataJoinUtils {
+
+  def rowToWeather(row: Row): Weather = {
+    Weather(
+      AIRPORT_ID = row.getInt(0),
+      Weather_TIMESTAMP = row.getTimestamp(1),
+      DryBulbCelsius = row.getDouble(2),
+      SkyCOndition = row.getString(3),
+      Visibility = row.getDouble(4),
+      WindSpeed = row.getDouble(5),
+      WeatherType = row.getString(6),
+      HourlyPrecip = row.getDouble(7)
+    )
+  }
+}
+

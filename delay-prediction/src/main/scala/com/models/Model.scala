@@ -11,10 +11,14 @@ import org.apache.spark.ml.feature.{StringIndexer, VectorAssembler, VectorIndexe
 
 import scala.collection.mutable.ArrayBuffer
 
-class Model(spark: SparkSession, pathDataML: String, delayThreshold: Int,
+class Model(pathDataML: String, delayThreshold: Int,
             originTimeRange: Int, destinationTimeRange: Int, maxCat: Int,
             handleInvalid: String, numTreesForRandomForest: Int)
 {
+  @transient val spark: SparkSession = SparkSession.builder()
+    .appName("FlightsDelayPredictionML")
+    .master("local[*]")
+    .getOrCreate()
 
   import spark.implicits._
   private def readChunk(index: Int): DataFrame = {
@@ -28,7 +32,7 @@ class Model(spark: SparkSession, pathDataML: String, delayThreshold: Int,
    * Read all chunks and union them into one DataFrame
    **/
   def readAllChunks(): DataFrame = {
-    val chunks = (0 until 20).map(readChunk)
+    val chunks = (0 until 10).map(readChunk)
     chunks.reduce(_ union _)
   }
 
@@ -39,15 +43,25 @@ class Model(spark: SparkSession, pathDataML: String, delayThreshold: Int,
     df.withColumn("Target", when($"Class" >= delayThreshold, 1).otherwise(0))
       .withColumn("ORIGIN_AIRPORT_ID", $"ORIGIN_AIRPORT_ID".cast("string"))
       .withColumn("DEST_AIRPORT_ID", $"DEST_AIRPORT_ID".cast("string"))
-      .withColumn("Hour_SO", hour($"CRS_DEP_TIMESTAMP"))
-      .withColumn("Hour_SA", hour($"SCHEDULED_ARRIVAL_TIMESTAMP"))
-      .withColumn("Day_SO", dayofweek($"CRS_DEP_TIMESTAMP"))
-      .withColumn("Day_SA", dayofweek($"SCHEDULED_ARRIVAL_TIMESTAMP"))
-      .withColumn("Month_SO", month($"CRS_DEP_TIMESTAMP"))
-      .withColumn("Month_SA", month($"SCHEDULED_ARRIVAL_TIMESTAMP"))
-      .withColumn("Year_SO", year($"CRS_DEP_TIMESTAMP"))
-      .withColumn("Year_SA", year($"SCHEDULED_ARRIVAL_TIMESTAMP"))
+      .withColumn("Hour_SO", date_format($"CRS_DEP_TIMESTAMP", "HH").cast("int"))
+      .withColumn("Hour_SA", date_format($"SCHEDULED_ARRIVAL_TIMESTAMP", "HH").cast("int"))
+      .withColumn("Day_SO", date_format($"CRS_DEP_TIMESTAMP", "F").cast("int"))
+      .withColumn("Day_SA", date_format($"SCHEDULED_ARRIVAL_TIMESTAMP", "F").cast("int"))
+      .withColumn("Month_SO", date_format($"CRS_DEP_TIMESTAMP", "M").cast("int"))
+      .withColumn("Month_SA", date_format($"SCHEDULED_ARRIVAL_TIMESTAMP", "M").cast("int"))
+      .withColumn("Year_SO", date_format($"CRS_DEP_TIMESTAMP", "y").cast("int"))
+      .withColumn("Year_SA", date_format($"SCHEDULED_ARRIVAL_TIMESTAMP", "y").cast("int"))
       .drop("Class", "CRS_DEP_TIMESTAMP", "SCHEDULED_ARRIVAL_TIMESTAMP")
+
+    //      .withColumn("Hour_SO", hour($"CRS_DEP_TIMESTAMP"))
+//      .withColumn("Hour_SA", hour($"SCHEDULED_ARRIVAL_TIMESTAMP"))
+//      .withColumn("Day_SO", dayofweek($"CRS_DEP_TIMESTAMP"))
+//      .withColumn("Day_SA", dayofweek($"SCHEDULED_ARRIVAL_TIMESTAMP"))
+//      .withColumn("Month_SO", month($"CRS_DEP_TIMESTAMP"))
+//      .withColumn("Month_SA", month($"SCHEDULED_ARRIVAL_TIMESTAMP"))
+//      .withColumn("Year_SO", year($"CRS_DEP_TIMESTAMP"))
+//      .withColumn("Year_SA", year($"SCHEDULED_ARRIVAL_TIMESTAMP"))
+//      .drop("Class", "CRS_DEP_TIMESTAMP", "SCHEDULED_ARRIVAL_TIMESTAMP")
   }
 
   /**
@@ -169,7 +183,7 @@ class Model(spark: SparkSession, pathDataML: String, delayThreshold: Int,
     val prefix = "indexed_"
     val featuresVec = "featuresVec"
     val featuresVecIndex = "features"
-
+    var featureIndices = Array(("", ""))
     // StringIndexer
     val outAttsNames = textCols.map(prefix + _)
     val stringIndexer = new StringIndexer()
@@ -179,6 +193,8 @@ class Model(spark: SparkSession, pathDataML: String, delayThreshold: Int,
 
     // VectorAssembler
     val features = outAttsNames ++ numericCols
+    featureIndices = features.zipWithIndex.map { case (f, i) => ("feature " + i, f) }
+
     val vectorAssembler = new VectorAssembler()
       .setInputCols(features)
       .setOutputCol(featuresVec)
@@ -210,18 +226,18 @@ class Model(spark: SparkSession, pathDataML: String, delayThreshold: Int,
     df.stat.sampleBy("label", fractions, seed = 42)
   }
 
-  // Method for Random Forest classifier configuration and model fitting
-  def trainRandomForestClassifier(trainingData: DataFrame): RandomForestClassifier = {
-    new RandomForestClassifier()
-      .setLabelCol("label")
-      .setFeaturesCol("features")
-      .setMaxBins(maxCat)
-      .setNumTrees(numTreesForRandomForest)
-      .setMaxDepth(20)
-      .setSubsamplingRate(0.5)
-      .setMaxBins(maxCat)
-      .setMinInstancesPerNode(20)
-  }
+//  // Method for Random Forest classifier configuration and model fitting
+//  def trainRandomForestClassifier(trainingData: DataFrame): RandomForestClassifier = {
+//    new RandomForestClassifier()
+//      .setLabelCol("label")
+//      .setFeaturesCol("features")
+//      .setMaxBins(maxCat)
+//      .setNumTrees(numTreesForRandomForest)
+//      .setMaxDepth(20)
+//      .setSubsamplingRate(0.5)
+//      .setMaxBins(maxCat)
+//      .setMinInstancesPerNode(20)
+//  }
 
 
   // Method for evaluating the model
@@ -254,25 +270,44 @@ class Model(spark: SparkSession, pathDataML: String, delayThreshold: Int,
     println("Step 1: Data loading OK")
 
     val processedTable = processTable(allChunks)
+    println("processedTable")
+    processedTable.show(2)
+
     println("Step 2: Table with selected time slots")
-
     val finalTable = prepareFinalTable(processedTable)
-    println("Step 3: Split of weather tuples")
+    println("finalTable")
+    finalTable.show(2)
 
+    println("Step 3: Split of weather tuples")
     val splitTable = splitStructColumns(finalTable)
+    println("splitTable")
+    splitTable.show(2)
+
     println("Step 4: Splitting of struct columns completed")
 
     val noDuplicateIdsTable = removeDuplicateAirportIds(splitTable)
+    println("noDuplicateIdsTable")
+    noDuplicateIdsTable.show(2)
+
     println("Step 5: Removal of duplicate airport IDs")
 
     val timestampSplitTable = splitTimestampColumns(noDuplicateIdsTable)
+    println("timestampSplitTable")
+    timestampSplitTable.show(2)
+
     println("Step 6: Splitting of timestamp columns")
 
     //Creates new columns in the DataFrame for the weather type
     val withWeatherTypeColumns = createWeatherTypeColumns(timestampSplitTable)
+    println("withWeatherTypeColumns")
+    withWeatherTypeColumns.show(2)
+
 
     // Example user choices: annee = 1, mois = 0, jour = 0
     val userChoiceFilteredTable = selectColumnsBasedOnUserChoices(withWeatherTypeColumns, year = 1, month = 0, day = 0)
+    println("userChoiceFilteredTable")
+    userChoiceFilteredTable.show(2)
+
     println("Step 7: Selection of columns based on user choices")
 
     // Extract column names by type for the final file
@@ -289,23 +324,40 @@ class Model(spark: SparkSession, pathDataML: String, delayThreshold: Int,
     println("Step 8: Pipeline declaration")
 
     // Prepare and transform data with the pipeline
-    val numPartitions = 2 // Example value, replace with actual user input
+    val numPartitions = 12
     val dataWithPartitions = partitionData(userChoiceFilteredTable, numPartitions)
     val dataEnc = pipeline.fit(dataWithPartitions).transform(dataWithPartitions)
-      .select(col("features"), col("Target").alias("label"))
+      .select(col("features"), col("Target"))
+      .withColumnRenamed("Target", "label")
+    val nbRows = dataEnc.count()
+
+    println(s"Step 9: Balance the dataset to handle class imbalance;  $nbRows")
 
     // Balance the dataset to handle class imbalance
     val dataBalanced = balanceDataset(dataEnc)
 
     // Split the balanced dataset into training and test sets
     val Array(trainingData, testData) = dataBalanced.randomSplit(Array(0.7, 0.3))
+    println("Step 10: training model")
 
 
     // Train the Random Forest classifier
-    val rfModel = trainRandomForestClassifier(trainingData).fit(trainingData)
+    val rf = new RandomForestClassifier()
+      .setLabelCol("label")
+      .setFeaturesCol("features")
+      .setMaxBins(maxCat)
+      .setNumTrees(numTreesForRandomForest)
+      .setMaxDepth(20)
+      .setSubsamplingRate(0.5)
+      .setMaxBins(270)
+      .setMinInstancesPerNode(20)
+
+    val rfModel = rf.fit(trainingData)
+    println("Step 11: Generate predictions on the test set using the trained Random Forest model")
 
     // Generate predictions on the test set using the trained Random Forest model
     val rfPredictions = rfModel.transform(testData)
+    println("Step 12: Evaluate the model")
 
     // Evaluate the model
     evaluateModel(rfPredictions)

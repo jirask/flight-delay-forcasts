@@ -10,4 +10,4 @@ case class Weather
   WindSpeed: Double,
   WeatherType: String,
   HourlyPrecip:Double
-)
+) extends Serializable

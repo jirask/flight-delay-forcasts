@@ -28,10 +28,9 @@ object DataProcessingApplication {
     println(s"Path is: $hdfsPath")
     val basePaths = Map(
       "flight" -> "/FlightsLight",
-      "weather" -> "/WeatherLight",
-      "table_finale" -> "/TableML"
+      "weather" -> "/WeatherLight"
     )
-    println("Enter output path (example: /students/iasd_20222023/szanutto")
+    println("Enter output path (example: /students/iasd_20222023/szanutto/output")
     val outputPath = StdIn.readLine()
 
     val dbfsDirs = basePaths.map { case (key, value) => key -> s"$hdfsPath$value" }
@@ -54,8 +53,8 @@ object DataProcessingApplication {
       .option("inferSchema", "true")
       .load(hdfsPath)
 
-//    println("Enter number of partitions for join:")
-//    val partitionsForJoin = StdIn.readInt()
+    println("Enter number of partitions for join (12):")
+    val partitionsForJoin = StdIn.readInt()
 
     println("Processing Flight Table.... ")
     val flightsPreprocessing = new FlightPreprocessing(rawFlightsData, timezoneData)
@@ -73,7 +72,7 @@ object DataProcessingApplication {
 
 
     println("Join.... ")
-    val dataJoin = new DataJoin(outputPath,12, weather, flights )
+    val dataJoin = new DataJoin(outputPath,partitionsForJoin, weather, flights )
     dataJoin.executePipeline()
     println("Join is done. ")
 
