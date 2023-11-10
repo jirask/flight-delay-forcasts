@@ -37,7 +37,7 @@ class WeatherPreprocessing(private val rawWeatherData: DataFrame, private val ti
         val pattern = "[A-Za-z]+(?=\\d*$)".r
         val result = pattern.findFirstIn(lastCloudLayer)
         result.getOrElse("OTHER")
-      case _ => "M"
+      case _ => "OTHER"
     }
   })
 
