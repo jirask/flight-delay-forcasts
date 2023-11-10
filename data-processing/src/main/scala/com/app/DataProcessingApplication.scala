@@ -19,19 +19,40 @@ object DataProcessingApplication {
       .appName("DataProcessing")
       .master("local[*]")
       .getOrCreate()
+    val ANSI_RESET = "\u001B[0m"
+    val ANSI_BOLD = "\u001B[1m"
+    val ANSI_CYAN = "\u001B[36m"
+    val ANSI_YELLOW = "\u001B[33m"
+    println(ANSI_BOLD + "===================================" + ANSI_RESET)
+    println(ANSI_BOLD + "Welcome to the Data Processing App" + ANSI_RESET)
+    println(ANSI_BOLD + "===================================" + ANSI_RESET)
+    println(ANSI_CYAN + "Instructions:" + ANSI_RESET)
+    println("1. Enter the root path for your input data.")
+    println("   If you do not have data in your current repository, you can use the data from:")
+    println("   /students/iasd_20222023/szanutto/ProjectFlight")
+    println("   Reminder: Your data should be in two repositories: ")
+    println("flight data in /FlightsLight and weather data in /WeatherLight and airport timezone in root path.")
+    println("2. Enter the root path for your output data.")
+    println("   This is where the processed data will be saved in chunks.")
+    println("   an example for the output path: /students/iasd_20222023/user/output")
+    println()
+    println(ANSI_CYAN + "Current directory is:" + ANSI_RESET)
+
 
     val currentPath = Paths.get("").toAbsolutePath
-    println(s"Current directory is: $currentPath")
-
-    println("Enter root path for your input data (example: /students/iasd_20222023/szanutto/ProjectFlight")
+    println(s"$ANSI_YELLOW$currentPath$ANSI_RESET")
+    println(ANSI_CYAN + "Enter your input path:" + ANSI_RESET)
     val hdfsPath = StdIn.readLine()
-    println(s"Path is: $hdfsPath")
+    println(s"Input path is: $ANSI_YELLOW$hdfsPath$ANSI_RESET")
+    println()
     val basePaths = Map(
       "flight" -> "/FlightsLight",
       "weather" -> "/WeatherLight"
     )
-    println("Enter output path (example: /students/iasd_20222023/szanutto/output")
+    println(ANSI_CYAN + "Enter output path (example: /students/iasd_20222023/user/output):" + ANSI_RESET)
     val outputPath = StdIn.readLine()
+    println(s"Output path is: $ANSI_YELLOW$outputPath$ANSI_RESET")
+
 
     val dbfsDirs = basePaths.map { case (key, value) => key -> s"$hdfsPath$value" }
 
@@ -53,9 +74,9 @@ object DataProcessingApplication {
       .option("inferSchema", "true")
       .load(hdfsPath)
 
-    println("Enter number of partitions for join (12):")
-    val partitionsForJoin = StdIn.readInt()
-
+//    println("Enter number of partitions for join (recommended: 12):") ////12 et 20
+//    val partitionsForJoin = StdIn.readInt()
+    val partitionsForJoin = 12
     println("Processing Flight Table.... ")
     val flightsPreprocessing = new FlightPreprocessing(rawFlightsData, timezoneData)
     flightsPreprocessing.buildFlightTable()
