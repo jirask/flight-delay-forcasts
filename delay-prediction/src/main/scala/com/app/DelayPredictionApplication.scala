@@ -8,14 +8,12 @@ import com.models.Model
 object DelayPredictionApplication {
   Logger.getLogger("org").setLevel(OFF)
   Logger.getLogger("akka").setLevel(OFF)
-  case class UserInputs(hdfsPath: String, pathDataML: String, originTimeRange: Int, destinationTimeRange: Int, delayThreshold: Int, numTreesForRandomForest: Int)
+  case class UserInputs(hdfsPathML: String, originTimeRange: Int, destinationTimeRange: Int, delayThreshold: Int, numTreesForRandomForest: Int)
   private def collectUserInputs(): UserInputs = {
-    println("Enter the path to the project root:")
-    val hdfsPath = scala.io.StdIn.readLine()
-    val pathDataML = "TableML"
-    val dbfsDirML = hdfsPath + pathDataML
+    println("Enter the path to the processed data:")
+    val hdfsPathML = scala.io.StdIn.readLine()
 
-    println(s"Path to the ML table: $dbfsDirML")
+    println(s"Path to the ML table: $hdfsPathML")
 
     println("Enter the time range before CRS (Central Reservation System):")
     val originTimeRange = scala.io.StdIn.readLine().toInt
@@ -34,7 +32,7 @@ object DelayPredictionApplication {
     println(s"Delay threshold: $delayThreshold")
     println(s"Number of Trees for RandomForest: $numTreesForRandomForest")
 
-    UserInputs(hdfsPath, pathDataML, originTimeRange, destinationTimeRange, delayThreshold, numTreesForRandomForest)
+    UserInputs(hdfsPathML, originTimeRange, destinationTimeRange, delayThreshold, numTreesForRandomForest)
   }
   def main(args: Array[String]): Unit = {
     val userInputs = collectUserInputs()
@@ -43,12 +41,11 @@ object DelayPredictionApplication {
       .appName("FlightsDelayPredictionML")
       .master("local[*]")
       .getOrCreate()
-    val maxCat = 20
+    val maxCat = 270
     val handleInvalid = "keep"
 
     val model = new Model(
-      spark,
-      userInputs.pathDataML,
+      userInputs.hdfsPathML,
       userInputs.delayThreshold,
       userInputs.originTimeRange,
       userInputs.destinationTimeRange,
