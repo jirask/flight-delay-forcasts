@@ -22,7 +22,7 @@ object DelayPredictionApplication {
     println(ANSI_CYAN + "Instructions:" + ANSI_RESET)
     println("* Enter the root path for your processed data.")
     println("   If you did not process data, you can use already processed data from:")
-    println("  /students/iasd_20222023/asakhraoui/output")
+    println(ANSI_BOLD + "  /students/iasd_20222023/asakhraoui/output"+ ANSI_RESET)
     println()
     val currentPath = Paths.get("").toAbsolutePath
     println(ANSI_CYAN + "Current directory is:" + ANSI_RESET)
@@ -31,7 +31,6 @@ object DelayPredictionApplication {
     println(ANSI_CYAN + "Enter your processed data path:" + ANSI_RESET)
     val hdfsPathML = scala.io.StdIn.readLine()
     println(s"Processed data path: $ANSI_YELLOW$hdfsPathML$ANSI_RESET")
-    println(s"$ANSI_YELLOW$hdfsPathML$ANSI_RESET")
 
     println(ANSI_CYAN +"Enter the time range before CRS (between 0 and 11 included):"+ ANSI_RESET) //0-12
     val originTimeRange = scala.io.StdIn.readLine().toInt
@@ -42,7 +41,7 @@ object DelayPredictionApplication {
     println(ANSI_CYAN +"Enter the delay threshold in minutes (between 15 and 60):"+ ANSI_RESET)//15-60
     val delayThreshold = scala.io.StdIn.readLine().toInt
 
-    println(ANSI_CYAN +"Enter the number of trees for RandomForest (recommended: 50):"+ ANSI_RESET) //100
+    println(ANSI_CYAN +"Enter the number of trees for RandomForest (recommended: 60):"+ ANSI_RESET) //100
     val numTreesForRandomForest = scala.io.StdIn.readLine().toInt
 
     println(s"Origin time range considered: $originTimeRange")
