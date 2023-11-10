@@ -39,8 +39,8 @@ delaypredictionapp_2.12-0.1.jar
 ```
 ### Tips
 If you are using the LAMSADE cluster: 
-- If you do not have processed data yet and wish to test the delay prediction application, you can find already processed data here: ```/students/iasd_20222023/asakhraoui/output ```
-- If you do not have the raw data, you can enter this as your root path: ```/students/iasd_20222023/szanutto/ProjectFlight```
+- If you do not have the raw data, you can enter this as your root path when running the data-processing-app : ```/students/iasd_20222023/szanutto/ProjectFlight```
+- If you do not have processed data yet and wish to test the delay-prediction-app, you can find already processed data here: ```/students/iasd_20222023/asakhraoui/output ```
 
 ### Conclusion and Future Work
 Our study indicates that while weather information improves delay predictions, the improvement is not significantly different from models without weather data. Future developments may include addressing data limitations, computational resources, and optimizing weather attribute selection for the model.
