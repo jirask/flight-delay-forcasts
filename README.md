@@ -1,4 +1,4 @@
-# Flight Delay Prediction Project
+# Flight Delay Forecasts: Developing a Predictive System Using Weather and Traffic Data
 
 ## Introduction
 This project addresses the challenge of flight delays, a significant concern for the aviation industry causing economic losses and inconvenience. By leveraging data processing with Spark and machine learning models, we aim to predict flight delays, particularly those induced by weather conditions. Our goal is to enhance airlines' operations, improve passenger communication, and contribute to the industry's sustainability.
