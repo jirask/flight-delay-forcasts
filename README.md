@@ -21,7 +21,7 @@ spark-submit \
 --num-executors 4 \
 --executor-memory 8G \
 --class com.DataProcessingApplication \
---master local \
+--master yarn \
 dataprocessingapp_2.12-0.1.jar
 ```
 ### Delay Prediction Application
